@@ -201,7 +201,7 @@ class SlackTodoAgent:
                 }
             })
         else:
-            # Add each todo with buttons
+            # Add each todo with link to original
             for i, mention in enumerate(mentions):
                 # Clean up the message text - remove user mentions for display
                 clean_text = mention['text'].replace(f'<@{self.user_id}>', '').strip()
@@ -210,41 +210,25 @@ class SlackTodoAgent:
                 if len(clean_text) > 200:
                     clean_text = clean_text[:197] + "..."
                 
+                # Format timestamp
+                time_str = mention['timestamp'].strftime('%b %d, %I:%M %p')
+                
                 blocks.append({
                     "type": "section",
                     "text": {
                         "type": "mrkdwn",
-                        "text": f"*{i+1}.* {clean_text}"
+                        "text": f"*{i+1}.* {clean_text}\n📅 {time_str}"
                     },
                     "accessory": {
                         "type": "button",
                         "text": {
                             "type": "plain_text",
-                            "text": "View Original",
+                            "text": "🔗 View Original",
                             "emoji": True
                         },
                         "url": mention['permalink'],
                         "action_id": f"view_original_{i}"
                     }
-                })
-                
-                # Add "Mark Done" button
-                blocks.append({
-                    "type": "actions",
-                    "block_id": f"todo_action_{i}",
-                    "elements": [
-                        {
-                            "type": "button",
-                            "text": {
-                                "type": "plain_text",
-                                "text": "✅ Mark Done",
-                                "emoji": True
-                            },
-                            "style": "primary",
-                            "action_id": f"mark_done_{i}",
-                            "value": f"{mention['channel']}|{mention['ts']}"
-                        }
-                    ]
                 })
                 
                 blocks.append({"type": "divider"})
@@ -255,7 +239,7 @@ class SlackTodoAgent:
             "elements": [
                 {
                     "type": "mrkdwn",
-                    "text": f"📅 Generated at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+                    "text": f"📅 Generated at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n💡 Tip: Click 'View Original' to see the full message"
                 }
             ]
         })
