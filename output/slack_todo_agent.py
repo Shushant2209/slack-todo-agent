@@ -363,7 +363,12 @@ def main(run_once: bool = False):
     
     # Look up the target user (the person whose mentions to scan)
     logger.info(f"Looking up user: {target_user}")
-    if '@' in target_user:
+    
+    # If it starts with U, assume it's already a user ID
+    if target_user.startswith('U'):
+        user_id = target_user
+        logger.info(f"Using provided user ID directly: {user_id}")
+    elif '@' in target_user:
         user_id = agent.get_user_id_by_email(target_user)
     else:
         user_id = agent.get_user_id_by_name(target_user)
