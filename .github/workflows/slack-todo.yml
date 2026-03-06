@@ -32,6 +32,7 @@ jobs:
       - name: Run Slack Todo Agent
         env:
           SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
+          SLACK_USER: ${{ secrets.SLACK_USER }}
         run: |
           cd output
           python slack_todo_agent.py --run-once

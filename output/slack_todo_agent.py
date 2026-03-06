@@ -26,21 +26,56 @@ logger = logging.getLogger(__name__)
 class SlackTodoAgent:
     """Agent that scans Slack mentions and creates interactive todo lists."""
     
-    def __init__(self, token: str):
+    def __init__(self, token: str, user_id: str = None):
         self.client = WebClient(token=token)
-        self.user_id = None
+        self.user_id = user_id  # The user whose mentions to scan
         self.todos = []
         
     def get_my_user_id(self) -> str:
-        """Get the authenticated user's ID."""
+        """Get the authenticated user's ID (the bot itself)."""
         try:
             response = self.client.auth_test()
-            self.user_id = response['user_id']
-            logger.info(f"Authenticated as user: {response['user']} ({self.user_id})")
-            return self.user_id
+            bot_user_id = response['user_id']
+            logger.info(f"Authenticated as bot: {response['user']} ({bot_user_id})")
+            return bot_user_id
         except SlackApiError as e:
             logger.error(f"Failed to authenticate: {e}")
             raise
+    
+    def get_user_id_by_email(self, email: str) -> str:
+        """Get a user's ID by their email address."""
+        try:
+            response = self.client.users_lookupByEmail(email=email)
+            if response['ok']:
+                user_id = response['user']['id']
+                logger.info(f"Found user: {response['user']['name']} ({user_id}) for email: {email}")
+                return user_id
+            else:
+                logger.error(f"User not found for email: {email}")
+                return None
+        except SlackApiError as e:
+            logger.error(f"Failed to look up user by email: {e}")
+            return None
+    
+    def get_user_id_by_name(self, username: str) -> str:
+        """Get a user's ID by their username (without @)."""
+        try:
+            # Try direct ID first
+            if username.startswith('U'):
+                return username
+            
+            # List users and find by name
+            response = self.client.users_list()
+            if response['ok']:
+                for user in response['members']:
+                    if user.get('name') == username:
+                        logger.info(f"Found user: {user['name']} ({user['id']})")
+                        return user['id']
+            logger.error(f"User not found: {username}")
+            return None
+        except SlackApiError as e:
+            logger.error(f"Failed to look up user by name: {e}")
+            return None
             
     def get_all_channels(self) -> list:
         """Get all channels where the user is a member."""
@@ -230,7 +265,7 @@ class SlackTodoAgent:
     def send_todo_list(self, mentions: list):
         """Send the todo list to the user's DM."""
         try:
-            # Open DM with user
+            # Open DM with the TARGET USER (not the bot)
             response = self.client.conversations_open(users=[self.user_id])
             dm_channel = response['channel']['id']
             
@@ -253,13 +288,15 @@ class SlackTodoAgent:
     
     def run(self):
         """Main agent execution."""
+        # If user_id not set, we can't scan
+        if not self.user_id:
+            logger.error("No user_id set! Please specify a user to scan mentions for.")
+            return
+            
         logger.info("=" * 50)
         logger.info("Starting Slack Todo Agent scan...")
+        logger.info(f"Scanning for mentions of user: {self.user_id}")
         logger.info("=" * 50)
-        
-        # Get user ID
-        if not self.user_id:
-            self.get_my_user_id()
         
         # Scan for mentions
         mentions = self.scan_all_channels()
@@ -274,8 +311,18 @@ class SlackTodoAgent:
 
 def main(run_once: bool = False):
     """Main entry point with optional scheduler."""
+    import argparse
+    
+    parser = argparse.ArgumentParser(description='Slack Todo Agent')
+    parser.add_argument('--run-once', action='store_true', 
+                       help='Run once and exit (for GitHub Actions)')
+    parser.add_argument('--user', type=str, 
+                       help='Your Slack username (without @) or email to scan mentions for')
+    args = parser.parse_args()
+    
     # Get token from environment
     token = os.environ.get('SLACK_BOT_TOKEN')
+    target_user = args.user or os.environ.get('SLACK_USER')
     
     if not token:
         logger.error("SLACK_BOT_TOKEN environment variable not set!")
@@ -291,26 +338,42 @@ def main(run_once: bool = False):
    - im:write
    - chat:write
    - users:read
+   - users:read.email
 3. Install the app to your workspace
 4. Copy your Bot User OAuth Token (starts with xoxb-)
-5. Set the token as a GitHub Secret:
-   - Go to your repo Settings > Secrets > New repository secret
-   - Name: SLACK_BOT_TOKEN
-   - Value: xoxb-your-token-here
-   
-6. The workflow will run automatically at 6 PM daily!
+5. Set as GitHub Secret: SLACK_BOT_TOKEN=xoxb-your-token
+6. Set your username: SLACK_USER=your-username
         """)
         return
     
+    if not target_user:
+        logger.error("No user specified! Set SLACK_USER env var or use --user argument")
+        logger.info("\nUsage: python slack_todo_agent.py --user YOUR_SLACK_USERNAME")
+        return
+    
     # Create agent
-    agent = SlackTodoAgent(token)
+    agent = SlackTodoAgent(token, user_id=None)
     
     # Test connection first
     try:
-        agent.get_my_user_id()
+        bot_id = agent.get_my_user_id()
     except Exception as e:
         logger.error(f"Failed to connect to Slack: {e}")
         return
+    
+    # Look up the target user (the person whose mentions to scan)
+    logger.info(f"Looking up user: {target_user}")
+    if '@' in target_user:
+        user_id = agent.get_user_id_by_email(target_user)
+    else:
+        user_id = agent.get_user_id_by_name(target_user)
+    
+    if not user_id:
+        logger.error(f"Could not find user: {target_user}")
+        return
+    
+    # Set the user ID to scan for
+    agent.user_id = user_id
     
     # If run_once mode (GitHub Actions), just run once and exit
     if run_once:
