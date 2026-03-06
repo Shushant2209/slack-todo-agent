@@ -1,0 +1,46 @@
+name: Slack Todo Agent
+
+on:
+  # Run daily at 6 PM UTC (adjust as needed)
+  schedule:
+    - cron: '0 18 * * *'
+  # Allow manual trigger
+  workflow_dispatch:
+  # Run on push to main
+  push:
+    branches: [main]
+
+jobs:
+  run-todo-agent:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+        working-directory: output
+          
+      - name: Run Slack Todo Agent
+        env:
+          SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
+        run: |
+          cd output
+          python slack_todo_agent.py --run-once
+        shell: bash
+        
+      - name: Report success
+        if: success()
+        run: echo "✅ Slack Todo Agent completed successfully"
+        
+      - name: Report failure
+        if: failure()
+        run: echo "❌ Slack Todo Agent failed - check secrets configuration"
